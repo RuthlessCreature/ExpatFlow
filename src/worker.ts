@@ -1,5 +1,6 @@
 import puppeteer from "@cloudflare/puppeteer";
 import legacyWorker from "./index";
+export { PlaywrightMCP } from "./index";
 
 declare global {
   interface Env {
