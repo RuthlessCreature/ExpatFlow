@@ -2,6 +2,8 @@
 
 Cloudflare Browser Run + Playwright MCP experiment for remote browser control and human-in-the-loop login.
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/RuthlessCreature/ExpatFlow)
+
 ## Goal
 
 This repository validates one concrete workflow first:
@@ -27,7 +29,7 @@ Cloudflare Worker
   +--> /api/live/start
   +--> /api/live/inspect
   +--> /api/live/goto
-  +--> /api/live/close
+  +--> /api/live/ping
         |
         v
 Cloudflare Browser Run
@@ -36,7 +38,29 @@ Cloudflare Browser Run
 Live View <--> Human login
 ```
 
-## Quick start
+## Fastest test
+
+### Option A — Deploy to Cloudflare button
+
+Click the button above, authorize Cloudflare, and deploy the Worker. Cloudflare will provision the Worker-side resources described by `wrangler.jsonc`.
+
+After deployment, configure one Worker secret:
+
+```text
+BRIDGE_TOKEN=<a long random value>
+```
+
+Then open the Worker root URL in your browser. The built-in control panel lets you:
+
+- enter `BRIDGE_TOKEN`;
+- choose the target URL (Facebook is prefilled);
+- start a Browser Run session;
+- open Cloudflare Live View;
+- manually log in / complete MFA;
+- reconnect to the same session and inspect or navigate it;
+- ping the session to keep it active.
+
+### Option B — Wrangler
 
 Prerequisites:
 
@@ -47,13 +71,23 @@ Prerequisites:
 ```bash
 npm install
 npx wrangler login
+npx wrangler secret put BRIDGE_TOKEN
 npm run deploy
 ```
 
-After deployment, start a remote login session:
+## API
+
+All `/api/*`, `/mcp`, and `/sse` requests require:
+
+```text
+Authorization: Bearer <BRIDGE_TOKEN>
+```
+
+Start a remote login session:
 
 ```bash
 curl -X POST "https://<worker>.workers.dev/api/live/start" \
+  -H "authorization: Bearer <BRIDGE_TOKEN>" \
   -H "content-type: application/json" \
   -d '{"url":"https://www.facebook.com/"}'
 ```
@@ -67,24 +101,29 @@ The response contains:
 After manual login, inspect the same session:
 
 ```bash
-curl "https://<worker>.workers.dev/api/live/inspect?sessionId=<SESSION_ID>"
+curl "https://<worker>.workers.dev/api/live/inspect?sessionId=<SESSION_ID>" \
+  -H "authorization: Bearer <BRIDGE_TOKEN>"
 ```
 
 Navigate the same logged-in session:
 
 ```bash
 curl -X POST "https://<worker>.workers.dev/api/live/goto" \
+  -H "authorization: Bearer <BRIDGE_TOKEN>" \
   -H "content-type: application/json" \
   -d '{"sessionId":"<SESSION_ID>","url":"https://www.facebook.com/"}'
 ```
 
-Close it when finished:
+Keep it active:
 
 ```bash
-curl -X POST "https://<worker>.workers.dev/api/live/close" \
+curl -X POST "https://<worker>.workers.dev/api/live/ping" \
+  -H "authorization: Bearer <BRIDGE_TOKEN>" \
   -H "content-type: application/json" \
   -d '{"sessionId":"<SESSION_ID>"}'
 ```
+
+Browser Run's configured keep-alive here is 10 minutes of inactivity. The session can remain alive longer while commands or Live View interactions continue.
 
 ## MCP
 
@@ -93,10 +132,19 @@ The Worker also exposes:
 - `/mcp` — Streamable HTTP MCP endpoint.
 - `/sse` — compatibility endpoint.
 
-This is backed by `@cloudflare/playwright-mcp` and Browser Run.
+This is backed by `@cloudflare/playwright-mcp` and Browser Run. It is intentionally protected by the same bearer token because publishing an unauthenticated browser-control MCP endpoint would be a serious security mistake.
 
-## Important limitation
+## What this experiment proves
 
-Browser Run is a cloud browser. It does **not** inherit the cookies, IP, fingerprint, extensions, or device history of your local Chrome. The purpose of this experiment is to test whether manual Live View login plus session reuse is stable enough for the target websites before building more automation.
+The first gate is not whether Playwright can click buttons. It can. The real gates are:
 
-Do not commit credentials, cookies, API tokens, or storage-state files to this repository.
+1. Can you reliably log in through Cloudflare Live View?
+2. Does the target site accept the Cloudflare Browser Run network / browser environment?
+3. Does the login remain valid while reconnecting to the same Browser Run session?
+4. How often does the site demand MFA / CAPTCHA / device verification again?
+
+If those gates pass, the next step is persistent auth-state handling and ChatGPT MCP integration. If they fail badly, the browser executor should move to a stable local/VPS Chrome profile instead of forcing Browser Run to do a job it is bad at.
+
+## Security
+
+Do not commit credentials, cookies, API tokens, or storage-state files to this repository. `BRIDGE_TOKEN` belongs in Cloudflare Worker secrets, not source control.
