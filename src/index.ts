@@ -14,7 +14,8 @@ declare global {
   }
 }
 
-export const PlaywrightMCP = createMcpAgent(globalEnv.BROWSER);
+const typedGlobalEnv = globalEnv as unknown as { BROWSER: Fetcher };
+export const PlaywrightMCP = createMcpAgent(typedGlobalEnv.BROWSER);
 
 const KEEP_ALIVE_MS = 600_000;
 const LIVE_VIEW_EXPIRES_MS = 3_600_000;
@@ -104,9 +105,6 @@ async function startLiveSession(request: Request, env: Env): Promise<Response> {
     const liveViewUrl = await createLiveView(page);
     const sessionId = browser.sessionId();
 
-    // Deliberately do not call browser.close() here. A browser created with
-    // launch() would be terminated by close(). Browser Run will keep the
-    // session available for reconnect until its inactivity timeout is reached.
     return json({
       ok: true,
       sessionId,
@@ -143,8 +141,6 @@ async function inspectLiveSession(request: Request, env: Env): Promise<Response>
       liveViewExpiresMs: LIVE_VIEW_EXPIRES_MS,
     });
   } finally {
-    // For a browser obtained via connect(), close() disconnects the Worker
-    // without terminating the Browser Run session.
     await browser.close().catch(() => undefined);
   }
 }
